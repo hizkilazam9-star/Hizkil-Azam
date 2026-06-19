@@ -1,0 +1,8 @@
+{
+  "name": "RE-FLOW",
+  "description": "RE-FLOW (Remainder Flow Work) - Platform SaaS modern untuk manajemen alur kerja, penugasan proyek, dan pengelola tenggat harian untuk berbagai profesi kreatif dan teknis. Kelola proyek, log kerja harian, portofolio digital, dan berkas file, lengkap dengan asisten AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
