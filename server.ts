@@ -146,124 +146,134 @@ async function startServer() {
   const isSMTPConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER);
 
   app.post("/api/auth/login", async (req, res) => {
-    const { email, password } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, message: "Email wajib diisi" });
-    }
-    if (!password) {
-      return res.status(400).json({ success: false, message: "Kata sandi wajib diisi" });
-    }
+    try {
+      const { email, password } = req.body;
+      if (!email) {
+        return res.status(400).json({ success: false, message: "Email wajib diisi" });
+      }
+      if (!password) {
+        return res.status(400).json({ success: false, message: "Kata sandi wajib diisi" });
+      }
 
-    const db = Database.get();
-    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      const db = Database.get();
+      const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
-    if (!user) {
-      return res.status(401).json({ success: false, message: "Email tidak terdaftar." });
-    }
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Email tidak terdaftar." });
+      }
 
-    // Verify Password (direct string check for simple local database architecture)
-    const userPassword = user.password || "admin123"; // Default pre-seed bypass password
-    if (userPassword !== password) {
-      return res.status(401).json({ success: false, message: "Kata sandi salah." });
-    }
+      // Verify Password (direct string check for simple local database architecture)
+      const userPassword = user.password || "admin123"; // Default pre-seed bypass password
+      if (userPassword !== password) {
+        return res.status(401).json({ success: false, message: "Kata sandi salah." });
+      }
 
-    // If matches, check if Gmail/Email verified
-    if (user.isEmailVerified === false) {
-      // Send a new verification code
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+      // If matches, check if Gmail/Email verified
+      if (user.isEmailVerified === false) {
+        // Send a new verification code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
-      user.emailVerificationCode = code;
-      user.emailVerificationExpires = expires;
-      Database.save(db);
+        user.emailVerificationCode = code;
+        user.emailVerificationExpires = expires;
+        Database.save(db);
 
-      // Async email sending which we await to check for errors
-      const emailSent = await sendVerificationEmail(user.email, code, user.name);
+        // Async email sending which we await to check for errors
+        const emailSent = await sendVerificationEmail(user.email, code, user.name);
 
-      return res.json({
+        return res.json({
+          success: true,
+          needsVerification: true,
+          email: user.email,
+          message: emailSent 
+            ? "Email belum diverifikasi. Kode verifikasi baru telah dikirim ke email Anda."
+            : "Format SMTP salah/gagal kirim. Gunakan Kode Sandbox di bawah untuk verifikasi.",
+          sandboxCode: emailSent ? undefined : code
+        });
+      }
+
+      // Login successful
+      res.json({
         success: true,
-        needsVerification: true,
-        email: user.email,
-        message: emailSent 
-          ? "Email belum diverifikasi. Kode verifikasi baru telah dikirim ke email Anda."
-          : "Format SMTP salah/gagal kirim. Gunakan Kode Sandbox di bawah untuk verifikasi.",
-        sandboxCode: emailSent ? undefined : code
+        user,
+        message: "Login berhasil!"
       });
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      res.status(500).json({ success: false, message: "Terjadi kesalahan internal server saat login: " + err.message });
     }
-
-    // Login successful
-    res.json({
-      success: true,
-      user,
-      message: "Login berhasil!"
-    });
   });
 
   app.post("/api/auth/register", async (req, res) => {
-    const { email, password, name, role } = req.body;
-    if (!email || !password || !name) {
-      return res.status(400).json({ success: false, message: "Email, nama, dan kata sandi wajib diisi" });
-    }
-
-    const db = Database.get();
-    const existingUserIndex = db.users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
-
-    if (existingUserIndex !== -1) {
-      const existingUser = db.users[existingUserIndex];
-      if (existingUser.isEmailVerified) {
-        return res.status(400).json({ success: false, message: "Email sudah terdaftar dan aktif. Silakan login." });
+    try {
+      const { email, password, name, role } = req.body;
+      if (!email || !password || !name) {
+        return res.status(400).json({ success: false, message: "Email, nama, dan kata sandi wajib diisi" });
       }
 
-      // If registered but unverified, allow updating password/name/role and send new code
-      existingUser.name = name;
-      existingUser.password = password;
-      existingUser.role = role || "Professional Contributor";
-      existingUser.emailVerificationCode = code;
-      existingUser.emailVerificationExpires = expires;
-      
+      const db = Database.get();
+      const existingUserIndex = db.users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+      if (existingUserIndex !== -1) {
+        const existingUser = db.users[existingUserIndex];
+        if (existingUser.isEmailVerified) {
+          return res.status(400).json({ success: false, message: "Email sudah terdaftar dan aktif. Silakan login." });
+        }
+
+        // If registered but unverified, allow updating password/name/role and send new code
+        existingUser.name = name;
+        existingUser.password = password;
+        existingUser.role = role || "Professional Contributor";
+        existingUser.emailVerificationCode = code;
+        existingUser.emailVerificationExpires = expires;
+        
+        Database.save(db);
+        const emailSent = await sendVerificationEmail(email, code, name);
+
+        return res.json({
+          success: true,
+          needsVerification: true,
+          email,
+          message: emailSent
+            ? "Pendaftaran diperbarui! Kode verifikasi baru telah dikirim."
+            : "Pendaftaran diperbarui, namun pengiriman SMTP gagal. Silakan gunakan Kode Sandbox di bawah.",
+          sandboxCode: emailSent ? undefined : code
+        });
+      }
+
+      // New User
+      const newUser = {
+        id: `user-${Date.now()}`,
+        email: email.toLowerCase(),
+        name,
+        role: role || "Professional Contributor",
+        password,
+        isEmailVerified: false,
+        emailVerificationCode: code,
+        emailVerificationExpires: expires,
+        createdAt: new Date().toISOString()
+      };
+
+      db.users.push(newUser);
       Database.save(db);
       const emailSent = await sendVerificationEmail(email, code, name);
 
-      return res.json({
+      res.json({
         success: true,
         needsVerification: true,
         email,
         message: emailSent
-          ? "Pendaftaran diperbarui! Kode verifikasi baru telah dikirim."
-          : "Pendaftaran diperbarui, namun pengiriman SMTP gagal. Silakan gunakan Kode Sandbox di bawah.",
+          ? "Pendaftaran berhasil! Kode verifikasi telah dikirim ke email."
+          : "Pendaftaran berhasil! SMTP gagal mengirim email, gunakan Kode Sandbox di bawah.",
         sandboxCode: emailSent ? undefined : code
       });
+    } catch (err: any) {
+      console.error("Register Error:", err);
+      res.status(500).json({ success: false, message: "Terjadi kesalahan internal server saat pendaftaran: " + err.message });
     }
-
-    // New User
-    const newUser = {
-      id: `user-${Date.now()}`,
-      email: email.toLowerCase(),
-      name,
-      role: role || "Professional Contributor",
-      password,
-      isEmailVerified: false,
-      emailVerificationCode: code,
-      emailVerificationExpires: expires,
-      createdAt: new Date().toISOString()
-    };
-
-    db.users.push(newUser);
-    Database.save(db);
-    const emailSent = await sendVerificationEmail(email, code, name);
-
-    res.json({
-      success: true,
-      needsVerification: true,
-      email,
-      message: emailSent
-        ? "Pendaftaran berhasil! Kode verifikasi telah dikirim ke email."
-        : "Pendaftaran berhasil! SMTP gagal mengirim email, gunakan Kode Sandbox di bawah.",
-      sandboxCode: emailSent ? undefined : code
-    });
   });
 
   // Verification Endpoint
@@ -308,67 +318,77 @@ async function startServer() {
 
   // Resend code
   app.post("/api/auth/resend-code", async (req, res) => {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, message: "Email wajib diisi" });
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ success: false, message: "Email wajib diisi" });
+      }
+
+      const db = Database.get();
+      const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan." });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+      user.emailVerificationCode = code;
+      user.emailVerificationExpires = expires;
+
+      Database.save(db);
+      const emailSent = await sendVerificationEmail(user.email, code, user.name);
+
+      res.json({
+        success: true,
+        message: emailSent 
+          ? "Kode verifikasi baru telah dikirim." 
+          : "SMTP gagal mengirim kode. Silakan gunakan Kode Sandbox di bawah.",
+        sandboxCode: emailSent ? undefined : code
+      });
+    } catch (err: any) {
+      console.error("Resend Code Error:", err);
+      res.status(500).json({ success: false, message: "Terjadi kesalahan internal server saat mengirim ulang kode: " + err.message });
     }
-
-    const db = Database.get();
-    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan." });
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
-
-    user.emailVerificationCode = code;
-    user.emailVerificationExpires = expires;
-
-    Database.save(db);
-    const emailSent = await sendVerificationEmail(user.email, code, user.name);
-
-    res.json({
-      success: true,
-      message: emailSent 
-        ? "Kode verifikasi baru telah dikirim." 
-        : "SMTP gagal mengirim kode. Silakan gunakan Kode Sandbox di bawah.",
-      sandboxCode: emailSent ? undefined : code
-    });
   });
 
   // Forgot Password Initiator
   app.post("/api/auth/forgot-password", async (req, res) => {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, message: "Email wajib diisi" });
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ success: false, message: "Email wajib diisi" });
+      }
+
+      const db = Database.get();
+      const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "Email tidak terdaftar sebagai pengguna." });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+      user.passwordResetCode = code;
+      user.passwordResetExpires = expires;
+
+      Database.save(db);
+      const emailSent = await sendPasswordResetEmail(user.email, code, user.name);
+
+      res.json({
+        success: true,
+        email: user.email,
+        message: emailSent 
+          ? "Kode pemulihan kata sandi telah dikirim." 
+          : "SMTP gagal mengirim email pemulihan. Silakan gunakan Kode Sandbox di bawah.",
+        sandboxCode: emailSent ? undefined : code
+      });
+    } catch (err: any) {
+      console.error("Forgot Password Error:", err);
+      res.status(500).json({ success: false, message: "Terjadi kesalahan internal server saat memproses lupa kata sandi: " + err.message });
     }
-
-    const db = Database.get();
-    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: "Email tidak terdaftar sebagai pengguna." });
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
-
-    user.passwordResetCode = code;
-    user.passwordResetExpires = expires;
-
-    Database.save(db);
-    const emailSent = await sendPasswordResetEmail(user.email, code, user.name);
-
-    res.json({
-      success: true,
-      email: user.email,
-      message: emailSent 
-        ? "Kode pemulihan kata sandi telah dikirim." 
-        : "SMTP gagal mengirim email pemulihan. Silakan gunakan Kode Sandbox di bawah.",
-      sandboxCode: emailSent ? undefined : code
-    });
   });
 
   // Reset Password Executor
@@ -609,31 +629,32 @@ async function startServer() {
 
   // 8. AI Assistant API (Internal Chat)
   app.post("/api/ai/chat", async (req, res) => {
-    const { messages, userPrompt } = req.body;
-    const currentLocalDate = "2026-06-17";
+    try {
+      const { messages, userPrompt } = req.body;
+      const currentLocalDate = "2026-06-17";
 
-    // Load actual context from db for Gemini
-    const projects = Database.getProjects();
-    const tasks = Database.getTasks();
-    const workLogs = Database.getWorkLogs();
+      // Load actual context from db for Gemini
+      const projects = Database.getProjects();
+      const tasks = Database.getTasks();
+      const workLogs = Database.getWorkLogs();
 
-    // Prepare dense details for AI context
-    const projectsContext = projects.map(p => 
-      `- Proyek: ${p.name} (Client: ${p.clientName}) | Status: ${p.status} | Progress: ${p.progress}% | Deadline: ${p.deadline} | Catatan: ${p.notes}`
-    ).join("\n");
+      // Prepare dense details for AI context
+      const projectsContext = projects.map(p => 
+        `- Proyek: ${p.name} (Client: ${p.clientName}) | Status: ${p.status} | Progress: ${p.progress}% | Deadline: ${p.deadline} | Catatan: ${p.notes}`
+      ).join("\n");
 
-    const tasksContext = tasks.map(t => {
-      const proj = projects.find(p => p.id === t.projectId)?.name || "Mandiri";
-      const chkTotal = t.checklist.length;
-      const chkDone = t.checklist.filter(c => c.done).length;
-      return `- Tugas: "${t.name}" | Proyek: "${proj}" | Status: ${t.status} | Prioritas: ${t.priority} | Deadline: ${t.deadline} | Checklist: (${chkDone}/${chkTotal} selesai) | Catatan: ${t.notes}`;
-    }).join("\n");
+      const tasksContext = tasks.map(t => {
+        const proj = projects.find(p => p.id === t.projectId)?.name || "Mandiri";
+        const chkTotal = t.checklist.length;
+        const chkDone = t.checklist.filter(c => c.done).length;
+        return `- Tugas: "${t.name}" | Proyek: "${proj}" | Status: ${t.status} | Prioritas: ${t.priority} | Deadline: ${t.deadline} | Checklist: (${chkDone}/${chkTotal} selesai) | Catatan: ${t.notes}`;
+      }).join("\n");
 
-    const logsContext = workLogs.slice(0, 15).map(l => 
-      `- Log [${l.date}]: "${l.text}"`
-    ).join("\n");
+      const logsContext = workLogs.slice(0, 15).map(l => 
+        `- Log [${l.date}]: "${l.text}"`
+      ).join("\n");
 
-    const systemInstruction = `Anda adalah RE-FLOW AI Assistant (dari sistem Remainder Flow Work), asisten profesional pintar khusus untuk para pekerja profesional, desainer, fotografer, produser konten, developer, freelancer, dan kolaborator proyek.
+      const systemInstruction = `Anda adalah RE-FLOW AI Assistant (dari sistem Remainder Flow Work), asisten profesional pintar khusus untuk para pekerja profesional, desainer, fotografer, produser konten, developer, freelancer, dan kolaborator proyek.
 Tugas Anda adalah menganalisis proyek, tugas, log kerja, dan tenggat waktu (deadline) pengguna, lalu memberikan saran taktis yang sangat terarah, analisis keterlambatan, prioritasi tugas, atau menyusun draf laporan kerja harian.
 
 INFORMASI PROYEK PENGGUNA SAAT INI (DATABASE REALTIME):
@@ -655,38 +676,37 @@ PANDUAN MENJAWAB:
 - Jika diminta membuat laporan kerja, gabungkan log aktivitas hari ini (${currentLocalDate}) ke dalam layout laporan yang indah beserta ringkasan kemajuan proyek.
 - Jika ditanya proyek mana yang paling terlambat, bandingkan tanggal deadline dengan status dan persentase progress saat ini.`;
 
-    if (!ai) {
-      // Offline fallback simulations
-      const lower = (userPrompt || "").toLowerCase();
-      let reply = "";
-      if (lower.includes("prioritas") || lower.includes("prioritaskan")) {
-        reply = `### Rekomendasi Prioritas Kerja Hari Ini
+      if (!ai) {
+        // Offline fallback simulations
+        const lower = (userPrompt || "").toLowerCase();
+        let reply = "";
+        if (lower.includes("prioritas") || lower.includes("prioritaskan")) {
+          reply = `### Rekomendasi Prioritas Kerja Hari Ini
 
-Berdasarkan analisis backlog (Koneksi AI Terbatas, Menggunakan Analisis Lokal):
+Berorientasikan analisis backlog (Koneksi AI Terbatas, Menggunakan Analisis Lokal):
 1. **Menyelesaikan fungsionalitas utama & review draf berkas** (Tinggi - Tenggat Hari Ini) - Proyek: *Draf Kampanye Media / Pengembangan Fitur*
 2. **Penyusunan laporan akhir harian & sinkronisasi data** (Tinggi - Besok) - Proyek: *Optimasi Data Proyek Utama*
 
 *Silakan aktifkan API Key untuk evaluasi AI yang lebih mendalam.*`;
-      } else if (lower.includes("laporan") || lower.includes("report")) {
-        reply = `### DRAF LAPORAN HARIAN (17 Juni 2026)
-        
-**Ringkasan Aktivitas Selesai Hari Ini:**
+        } else if (lower.includes("laporan") || lower.includes("report")) {
+          reply = `### DRAF LAPORAN HARIAN (17 Juni 2026)
+          
+Ringkasan Aktivitas Selesai Hari Ini:
 ${workLogs.filter(l => l.date === currentLocalDate).map(l => `- ${l.text}`).join("\n") || "- Melaksanakan update pengerjaan rutinitas harian & review tenggat."}
 
-**Progress Proyek Utama:**
+Progress Proyek Utama:
 - **Branding & Digital Campaign:** 80% (Review Aset Visual)
 - **Pengembangan Aplikasi Web Internal:** 90% (Review Deployment)
 
 *Silakan hubungkan API Key di menu rahasia untuk penyusunan laporan otomatis berbasis Gemini.*`;
-      } else {
-        reply = `Halo! Saya adalah **RE-FLOW AI Assistant** (Remainder Flow Work). 
+        } else {
+          reply = `Halo! Saya adalah **RE-FLOW AI Assistant** (Remainder Flow Work). 
 
 Koneksi server ke API Gemini saat ini menggunakan respons lokal. Saya tetap dapat membantu Anda melihat daftar proyek aktif dan jadwal tugas Anda. Ada yang bisa saya bantu untuk mengorganisir aktivitas dan penugasan kerja Anda hari ini?`;
+        }
+        return res.json({ text: reply });
       }
-      return res.json({ text: reply });
-    }
 
-    try {
       // Build structured model request
       // Clean up inputs to format exactly as the Gemini SDK expects
       const contentsList: any[] = [];
@@ -720,7 +740,7 @@ Koneksi server ke API Gemini saat ini menggunakan respons lokal. Saya tetap dapa
 
       res.json({ text: response.text || "Tidak ada respon dihasilkan dari AI." });
     } catch (err: any) {
-      console.error("Gemini Response Generation Error:", err);
+      console.error("AI Assistant Error:", err);
       res.status(500).json({ error: "Gagal memproses respon AI: " + err.message });
     }
   });
