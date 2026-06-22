@@ -2,12 +2,17 @@ import fs from "fs";
 import path from "path";
 
 // Define the file paths
-const DB_DIR = path.join(process.cwd(), "data");
+const isVercel = process.env.VERCEL === "1";
+const DB_DIR = isVercel ? "/tmp" : path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "db.json");
 
 // Ensure data directory and file exist
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn("Could not create DB_DIR, skipping for read-only environment:", e);
 }
 
 // Interfaces
@@ -395,6 +400,18 @@ const seedData: DatabaseSchema = {
 export class Database {
   static get(): DatabaseSchema {
     if (!fs.existsSync(DB_FILE)) {
+      // In Vercel / serverless environment, check if there's a pre-packaged db.json in production directory
+      const prepackagedPath = path.join(process.cwd(), "data", "db.json");
+      if (fs.existsSync(prepackagedPath)) {
+        try {
+          const content = fs.readFileSync(prepackagedPath, "utf-8");
+          const data = JSON.parse(content) as DatabaseSchema;
+          this.save(data);
+          return data;
+        } catch (err) {
+          console.error("Failed to read prepackaged db.json, falling back to seedData:", err);
+        }
+      }
       this.save(seedData);
       return seedData;
     }
