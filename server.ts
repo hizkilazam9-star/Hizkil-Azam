@@ -40,12 +40,17 @@ async function startServer() {
 
   // Helper to create SMTP transporter
   function getTransporter() {
-    const host = process.env.SMTP_HOST;
-    const port = process.env.SMTP_PORT;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASSWORD;
+    const host = process.env.SMTP_HOST?.trim();
+    const port = process.env.SMTP_PORT?.trim();
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASSWORD?.trim();
 
     if (host && port && user && pass) {
+      // Validate SMTP host to prevent DNS getaddrinfo errors on placeholder/unconfigured settings (e.g. name like "azam")
+      if (host !== "localhost" && !host.includes(".")) {
+        console.warn(`SMTP_HOST "${host}" is not a valid domain or IP address. Falling back to Sandbox Mode.`);
+        return null;
+      }
       return nodemailer.createTransport({
         host,
         port: parseInt(port),
@@ -54,6 +59,10 @@ async function startServer() {
           user,
           pass,
         },
+        // Low connection timeout to fail fast if network issues occur
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
       });
     }
     return null;
@@ -88,6 +97,7 @@ async function startServer() {
         return true;
       } catch (err) {
         console.error(`Failed to send real email via SMTP:`, err);
+        return false;
       }
     }
     console.log(`\n===============================================\n[SANDBOX MAILBOX] Verifikasi Email\nKirim ke: ${email}\nKode: ${code}\n===============================================\n`);
@@ -123,6 +133,7 @@ async function startServer() {
         return true;
       } catch (err) {
         console.error(`Failed to send real password reset email via SMTP:`, err);
+        return false;
       }
     }
     console.log(`\n===============================================\n[SANDBOX MAILBOX] Lupa Kata Sandi\nKirim ke: ${email}\nKode: ${code}\n===============================================\n`);

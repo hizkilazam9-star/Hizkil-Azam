@@ -850,16 +850,7 @@ export default function App() {
               </form>
             )}
 
-            {/* Prompt Bypass Button (Premium Feature helper for testing) */}
-            <div className="pt-2 text-center">
-              <span className="text-[10px] text-zinc-650 block mb-2 select-none">Evaluator Quick Trial Bypass:</span>
-              <button 
-                onClick={bypassAndSeedLogin}
-                className="w-full bg-zinc-950 hover:bg-zinc-850 text-zinc-350 hover:text-white border border-zinc-800 p-2 rounded-lg transition font-semibold cursor-pointer"
-              >
-                ⚡ Akses Langsung Hizkia (Uji Coba Cepat)
-              </button>
-            </div>
+
           </div>
         </div>
       ) : (
