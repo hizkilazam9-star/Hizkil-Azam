@@ -30,6 +30,27 @@ import {
   X
 } from "lucide-react";
 
+async function safeFetchJSON(url: string, options?: RequestInit) {
+  const method = options?.method || "GET";
+  const response = await fetch(url, options);
+  const text = await response.text();
+
+  console.log("Request URL:", url);
+  console.log("Request Method:", method);
+  console.log("Response Status:", response.status);
+  console.log("Response Body:", text);
+
+  try {
+    const data = JSON.parse(text);
+    return data;
+  } catch (error) {
+    console.error("Server returned non-JSON:", text);
+    throw new Error(
+      `Expected JSON but received HTML or invalid response: ${text.slice(0, 100)}`
+    );
+  }
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -119,12 +140,11 @@ export default function App() {
 
     try {
       if (isRegister) {
-        const res = await fetch("/api/auth/register", {
+        const data = await safeFetchJSON("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password, name, role })
         });
-        const data = await res.json();
         
         if (data.success) {
           if (data.needsVerification) {
@@ -140,12 +160,11 @@ export default function App() {
           setAuthError(data.message || "Gagal melakukan register.");
         }
       } else {
-        const res = await fetch("/api/auth/login", {
+        const data = await safeFetchJSON("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
         });
-        const data = await res.json();
         
         if (data.success) {
           if (data.needsVerification) {
@@ -179,12 +198,11 @@ export default function App() {
     }
 
     try {
-      const res = await fetch("/api/auth/verify-email", {
+      const data = await safeFetchJSON("/api/auth/verify-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verificationEmail, code: verificationCode })
       });
-      const data = await res.json();
 
       if (data.success) {
         setNeedsVerification(false);
@@ -196,8 +214,8 @@ export default function App() {
       } else {
         setAuthError(data.message || "Kode verifikasi salah.");
       }
-    } catch (err) {
-      setAuthError("Gagal memverifikasi dokumen.");
+    } catch (err: any) {
+      setAuthError("Gagal memverifikasi dokumen: " + err.message);
     }
   };
 
@@ -205,12 +223,11 @@ export default function App() {
     setAuthError("");
     setAuthSuccess("");
     try {
-      const res = await fetch("/api/auth/resend-code", {
+      const data = await safeFetchJSON("/api/auth/resend-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verificationEmail })
       });
-      const data = await res.json();
       if (data.success) {
         setAuthSuccess(data.message);
         if (data.sandboxCode) {
@@ -219,8 +236,8 @@ export default function App() {
       } else {
         setAuthError(data.message || "Gagal mengirim ulang kode.");
       }
-    } catch (err) {
-      setAuthError("Kesalahan server saat mengirim ulang kode.");
+    } catch (err: any) {
+      setAuthError("Kesalahan server saat mengirim ulang kode: " + err.message);
     }
   };
 
@@ -236,12 +253,11 @@ export default function App() {
     }
 
     try {
-      const res = await fetch("/api/auth/forgot-password", {
+      const data = await safeFetchJSON("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email })
       });
-      const data = await res.json();
 
       if (data.success) {
         setIsForgotPasswordVerifying(true);
@@ -251,8 +267,8 @@ export default function App() {
       } else {
         setAuthError(data.message || "Email tidak terdaftar.");
       }
-    } catch (err) {
-      setAuthError("Gagal menghubungi server database.");
+    } catch (err: any) {
+      setAuthError("Gagal menghubungi server database: " + err.message);
     }
   };
 
@@ -271,12 +287,11 @@ export default function App() {
     }
 
     try {
-      const res = await fetch("/api/auth/reset-password", {
+      const data = await safeFetchJSON("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verificationEmail, code: verificationCode, password })
       });
-      const data = await res.json();
 
       if (data.success) {
         setForgotPassword(false);
@@ -288,8 +303,8 @@ export default function App() {
       } else {
         setAuthError(data.message || "Kode pemulihan salah atau kedaluwarsa.");
       }
-    } catch (err) {
-      setAuthError("Kesalahan server saat mereset kata sandi.");
+    } catch (err: any) {
+      setAuthError("Kesalahan server saat mereset kata sandi: " + err.message);
     }
   };
 
@@ -301,7 +316,7 @@ export default function App() {
   const handleUpdateProfile = async (name: string, role: string, avatarUrl: string): Promise<boolean> => {
     if (!currentUser) return false;
     try {
-      const res = await fetch("/api/auth/profile", {
+      const data = await safeFetchJSON("/api/auth/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -311,7 +326,6 @@ export default function App() {
           avatarUrl
         })
       });
-      const data = await res.json();
       if (data.success && data.user) {
         setCurrentUser(data.user);
         fetchAllData();

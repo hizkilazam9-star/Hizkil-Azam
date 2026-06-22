@@ -54,11 +54,22 @@ export default function AiAssistant() {
         })
       });
 
+      const text = await response.text();
+      console.log("Request URL: /api/ai/chat");
+      console.log("Response Status:", response.status);
+      console.log("Response Body:", text);
+
       if (!response.ok) {
-        throw new Error("Gagal terhubung dengan server API.");
+        throw new Error(`Gagal terhubung dengan server API (${response.status})`);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Server returned non-JSON:", text);
+        throw new Error("Expected JSON response but received HTML or invalid payload");
+      }
       
       const aiReply: Message = {
         id: `msg-${Date.now() + 1}`,

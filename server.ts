@@ -9,17 +9,16 @@ import nodemailer from "nodemailer";
 // Load environment variables
 dotenv.config();
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
+let ai: GoogleGenAI | null = null;
 
-  // Body parser limit increased to support base64 uploading for drawings/files
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// Body parser limit increased to support base64 uploading for drawings/files
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // Initialize Gemini AI SDK if API key is present
-  const apiKey = process.env.GEMINI_API_KEY;
-  let ai: GoogleGenAI | null = null;
+// Initialize Gemini AI SDK if API key is present
+const apiKey = process.env.GEMINI_API_KEY;
   if (apiKey) {
     try {
       ai = new GoogleGenAI({
@@ -772,25 +771,33 @@ Koneksi server ke API Gemini saat ini menggunakan respons lokal. Saya tetap dapa
   });
 
   // Setup Vite development server or production static assets
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+  async function setupAndListen() {
+    if (process.env.VERCEL === "1") {
+      // Under Vercel environment, front-end is served statically and API endpoints are serverless.
+      return;
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  setupAndListen().catch((err) => {
+    console.error("Failed to start server locally:", err);
   });
-}
 
-startServer().catch((err) => {
-  console.error("Failed to start server:", err);
-});
+  export default app;
