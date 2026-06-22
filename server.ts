@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { Database } from "./src/server/db";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import nodemailer from "nodemailer";
 
 // Load environment variables
 dotenv.config();
@@ -37,57 +38,361 @@ async function startServer() {
     console.warn("GEMINI_API_KEY is not defined in environment variables. AI queries will fall back to simulated responses.");
   }
 
+  // Helper to create SMTP transporter
+  function getTransporter() {
+    const host = process.env.SMTP_HOST;
+    const port = process.env.SMTP_PORT;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASSWORD;
+
+    if (host && port && user && pass) {
+      return nodemailer.createTransport({
+        host,
+        port: parseInt(port),
+        secure: parseInt(port) === 465, // true for 465, else false
+        auth: {
+          user,
+          pass,
+        },
+      });
+    }
+    return null;
+  }
+
+  // Helper to send registration verification email
+  async function sendVerificationEmail(email: string, code: string, name: string) {
+    const transporter = getTransporter();
+    const from = process.env.SMTP_FROM || '"RE-FLOW Work" <noreply@re-flow-work.com>';
+    
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from,
+          to: email,
+          subject: "[RE-FLOW] Verifikasi Email Anda",
+          text: `Halo ${name},\n\nTerima kasih telah mendaftar di RE-FLOW Workspace.\n\nKode verifikasi Anda adalah: ${code}\n\nKode ini berlaku selama 20 menit.\n\nSalam hangat,\nTim RE-FLOW`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #4f46e5; text-align: center;">Verifikasi Email RE-FLOW</h2>
+              <p>Halo <strong>${name}</strong>,</p>
+              <p>Terima kasih telah bergabung di <strong>RE-FLOW Workspace</strong>, platform kolaborasi dan manajemen tugas profesional Anda.</p>
+              <p style="font-size: 16px;">Kode verifikasi pendaftaran akun Anda adalah:</p>
+              <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 4px; color: #1e1b4b; margin: 20px 0;">
+                ${code}
+              </div>
+              <p style="color: #6b7280; font-size: 12px; text-align: center;">Kode ini berlaku selama 20 menit. Jangan sebarkan kode ini kepada siapa pun.</p>
+            </div>
+          `
+        });
+        console.log(`REAL EMAIL: Verification email sent to ${email}`);
+        return true;
+      } catch (err) {
+        console.error(`Failed to send real email via SMTP:`, err);
+      }
+    }
+    console.log(`\n===============================================\n[SANDBOX MAILBOX] Verifikasi Email\nKirim ke: ${email}\nKode: ${code}\n===============================================\n`);
+    return false;
+  }
+
+  // Helper to send password reset email
+  async function sendPasswordResetEmail(email: string, code: string, name: string) {
+    const transporter = getTransporter();
+    const from = process.env.SMTP_FROM || '"RE-FLOW Work" <noreply@re-flow-work.com>';
+    
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from,
+          to: email,
+          subject: "[RE-FLOW] Pemulihan Kata Sandi",
+          text: `Halo ${name},\n\nKami menerima permintaan untuk mereset kata sandi akun RE-FLOW Anda.\n\nKode pemulihan Anda adalah: ${code}\n\nKode ini berlaku selama 20 menit.\n\nJika Anda tidak meminta ini, abaikan email ini.\n\nSalam hangat,\nTim RE-FLOW`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #ef4444; text-align: center;">Atur Ulang Kata Sandi RE-FLOW</h2>
+              <p>Halo <strong>${name}</strong>,</p>
+              <p>Kami menerima permintaan untuk melakukan pengaturan ulang kata sandi pada akun RE-FLOW Anda.</p>
+              <p style="font-size: 16px;">Kode pemulihan kata sandi Anda adalah:</p>
+              <div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 4px; color: #ef4444; margin: 20px 0; border: 1px dashed #fca5a5;">
+                ${code}
+              </div>
+              <p style="color: #6b7280; font-size: 12px; text-align: center;">Kode ini berlaku selama 20 menit. Jika Anda tidak merasa melakukan tindakan ini, abaikan email ini.</p>
+            </div>
+          `
+        });
+        console.log(`REAL EMAIL: Password reset email sent to ${email}`);
+        return true;
+      } catch (err) {
+        console.error(`Failed to send real password reset email via SMTP:`, err);
+      }
+    }
+    console.log(`\n===============================================\n[SANDBOX MAILBOX] Lupa Kata Sandi\nKirim ke: ${email}\nKode: ${code}\n===============================================\n`);
+    return false;
+  }
+
   // API ROUTES -- MUST GO FIRST
 
-  // 1. Auth Mock API
-  app.post("/api/auth/login", (req, res) => {
+  // 1. Auth & Verification API
+  const isSMTPConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER);
+
+  app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
+      return res.status(400).json({ success: false, message: "Email wajib diisi" });
     }
-    const user = Database.findUserByEmail(email);
+    if (!password) {
+      return res.status(400).json({ success: false, message: "Kata sandi wajib diisi" });
+    }
+
+    const db = Database.get();
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
     if (!user) {
-      // Auto-register design: if not found, we create a new user for instant friction-free login
-      const name = email.split("@")[0];
-      const newUser = Database.addProject({
-        // wait, database user is created in database. Let's add user
-        name: "test", clientName: "", description: "", startDate: "", deadline: "", status: "Planning", progress: 0, notes: ""
-      }); // We will create user manually in db
-      const db = Database.get();
-      const createdUser = {
-        id: `user-${Date.now()}`,
-        email: email,
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        role: "Professional Technical Designer",
-        createdAt: new Date().toISOString()
-      };
-      db.users.push(createdUser);
-      Database.save(db);
-      return res.json({ success: true, user: createdUser, message: "Pendaftaran otomatis berhasil!" });
+      return res.status(401).json({ success: false, message: "Email tidak terdaftar." });
     }
-    res.json({ success: true, user, message: "Login berhasil!" });
+
+    // Verify Password (direct string check for simple local database architecture)
+    const userPassword = user.password || "admin123"; // Default pre-seed bypass password
+    if (userPassword !== password) {
+      return res.status(401).json({ success: false, message: "Kata sandi salah." });
+    }
+
+    // If matches, check if Gmail/Email verified
+    if (user.isEmailVerified === false) {
+      // Send a new verification code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+      user.emailVerificationCode = code;
+      user.emailVerificationExpires = expires;
+      Database.save(db);
+
+      // Async email sending which we await to check for errors
+      const emailSent = await sendVerificationEmail(user.email, code, user.name);
+
+      return res.json({
+        success: true,
+        needsVerification: true,
+        email: user.email,
+        message: emailSent 
+          ? "Email belum diverifikasi. Kode verifikasi baru telah dikirim ke email Anda."
+          : "Format SMTP salah/gagal kirim. Gunakan Kode Sandbox di bawah untuk verifikasi.",
+        sandboxCode: emailSent ? undefined : code
+      });
+    }
+
+    // Login successful
+    res.json({
+      success: true,
+      user,
+      message: "Login berhasil!"
+    });
   });
 
-  app.post("/api/auth/register", (req, res) => {
-    const { email, name, role } = req.body;
-    if (!email || !name) {
-      return res.status(400).json({ success: false, message: "Email dan nama wajib diisi" });
+  app.post("/api/auth/register", async (req, res) => {
+    const { email, password, name, role } = req.body;
+    if (!email || !password || !name) {
+      return res.status(400).json({ success: false, message: "Email, nama, dan kata sandi wajib diisi" });
     }
+
     const db = Database.get();
-    const existingUser = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: "Email sudah terdaftar" });
+    const existingUserIndex = db.users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+    if (existingUserIndex !== -1) {
+      const existingUser = db.users[existingUserIndex];
+      if (existingUser.isEmailVerified) {
+        return res.status(400).json({ success: false, message: "Email sudah terdaftar dan aktif. Silakan login." });
+      }
+
+      // If registered but unverified, allow updating password/name/role and send new code
+      existingUser.name = name;
+      existingUser.password = password;
+      existingUser.role = role || "Professional Contributor";
+      existingUser.emailVerificationCode = code;
+      existingUser.emailVerificationExpires = expires;
+      
+      Database.save(db);
+      const emailSent = await sendVerificationEmail(email, code, name);
+
+      return res.json({
+        success: true,
+        needsVerification: true,
+        email,
+        message: emailSent
+          ? "Pendaftaran diperbarui! Kode verifikasi baru telah dikirim."
+          : "Pendaftaran diperbarui, namun pengiriman SMTP gagal. Silakan gunakan Kode Sandbox di bawah.",
+        sandboxCode: emailSent ? undefined : code
+      });
     }
+
+    // New User
     const newUser = {
       id: `user-${Date.now()}`,
-      email,
+      email: email.toLowerCase(),
       name,
-      role: role || "Freelancer Drafter",
+      role: role || "Professional Contributor",
+      password,
+      isEmailVerified: false,
+      emailVerificationCode: code,
+      emailVerificationExpires: expires,
       createdAt: new Date().toISOString()
     };
+
     db.users.push(newUser);
     Database.save(db);
-    res.json({ success: true, user: newUser });
+    const emailSent = await sendVerificationEmail(email, code, name);
+
+    res.json({
+      success: true,
+      needsVerification: true,
+      email,
+      message: emailSent
+        ? "Pendaftaran berhasil! Kode verifikasi telah dikirim ke email."
+        : "Pendaftaran berhasil! SMTP gagal mengirim email, gunakan Kode Sandbox di bawah.",
+      sandboxCode: emailSent ? undefined : code
+    });
+  });
+
+  // Verification Endpoint
+  app.post("/api/auth/verify-email", (req, res) => {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({ success: false, message: "Email dan kode verifikasi wajib diisi" });
+    }
+
+    const db = Database.get();
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan." });
+    }
+
+    if (user.isEmailVerified) {
+      return res.json({ success: true, user, message: "Akun Anda sudah diverifikasi sebelumnya." });
+    }
+
+    if (user.emailVerificationCode !== code) {
+      return res.status(400).json({ success: false, message: "Kode verifikasi salah." });
+    }
+
+    if (user.emailVerificationExpires && new Date(user.emailVerificationExpires) < new Date()) {
+      return res.status(400).json({ success: false, message: "Kode verifikasi telah kedaluwarsa. Silakan minta kode baru." });
+    }
+
+    // Verify user
+    user.isEmailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpires = undefined;
+
+    Database.save(db);
+
+    res.json({
+      success: true,
+      user,
+      message: "Selamat! Email Anda berhasil diverifikasi."
+    });
+  });
+
+  // Resend code
+  app.post("/api/auth/resend-code", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email wajib diisi" });
+    }
+
+    const db = Database.get();
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan." });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+    user.emailVerificationCode = code;
+    user.emailVerificationExpires = expires;
+
+    Database.save(db);
+    const emailSent = await sendVerificationEmail(user.email, code, user.name);
+
+    res.json({
+      success: true,
+      message: emailSent 
+        ? "Kode verifikasi baru telah dikirim." 
+        : "SMTP gagal mengirim kode. Silakan gunakan Kode Sandbox di bawah.",
+      sandboxCode: emailSent ? undefined : code
+    });
+  });
+
+  // Forgot Password Initiator
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email wajib diisi" });
+    }
+
+    const db = Database.get();
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Email tidak terdaftar sebagai pengguna." });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+    user.passwordResetCode = code;
+    user.passwordResetExpires = expires;
+
+    Database.save(db);
+    const emailSent = await sendPasswordResetEmail(user.email, code, user.name);
+
+    res.json({
+      success: true,
+      email: user.email,
+      message: emailSent 
+        ? "Kode pemulihan kata sandi telah dikirim." 
+        : "SMTP gagal mengirim email pemulihan. Silakan gunakan Kode Sandbox di bawah.",
+      sandboxCode: emailSent ? undefined : code
+    });
+  });
+
+  // Reset Password Executor
+  app.post("/api/auth/reset-password", (req, res) => {
+    const { email, code, password } = req.body;
+    if (!email || !code || !password) {
+      return res.status(400).json({ success: false, message: "Email, kode, dan kata sandi baru harus diisi." });
+    }
+
+    const db = Database.get();
+    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan." });
+    }
+
+    if (user.passwordResetCode !== code) {
+      return res.status(400).json({ success: false, message: "Kode pemulihan salah." });
+    }
+
+    if (user.passwordResetExpires && new Date(user.passwordResetExpires) < new Date()) {
+      return res.status(400).json({ success: false, message: "Kode pemulihan telah kedaluwarsa." });
+    }
+
+    user.password = password;
+    user.isEmailVerified = true; // Proved ownership via email reset token code
+    user.passwordResetCode = undefined;
+    user.passwordResetExpires = undefined;
+
+    Database.save(db);
+
+    res.json({
+      success: true,
+      message: "Kata sandi Anda berhasil diperbarui! Silakan masuk dengan kata sandi baru mendatar."
+    });
   });
 
   app.put("/api/auth/profile", (req, res) => {

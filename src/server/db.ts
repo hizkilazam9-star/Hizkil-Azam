@@ -18,6 +18,12 @@ export interface User {
   role: string;
   avatarUrl?: string;
   createdAt: string;
+  password?: string;
+  isEmailVerified?: boolean;
+  emailVerificationCode?: string;
+  emailVerificationExpires?: string;
+  passwordResetCode?: string;
+  passwordResetExpires?: string;
 }
 
 export interface Project {
@@ -128,6 +134,8 @@ const seedData: DatabaseSchema = {
       role: "Senior Consultant / Specialist",
       avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80",
       createdAt: new Date().toISOString(),
+      password: "admin123",
+      isEmailVerified: true
     }
   ],
   projects: [
@@ -393,9 +401,33 @@ export class Database {
     try {
       const content = fs.readFileSync(DB_FILE, "utf-8");
       const data = JSON.parse(content) as DatabaseSchema;
-      if (!data.calendarEvents) {
-        data.calendarEvents = [];
+      
+      // Defend against missing database arrays from legacy db.json files
+      if (!data.users || !Array.isArray(data.users)) {
+        data.users = [...seedData.users];
       }
+      if (!data.projects || !Array.isArray(data.projects)) {
+        data.projects = [...seedData.projects];
+      }
+      if (!data.tasks || !Array.isArray(data.tasks)) {
+        data.tasks = [...seedData.tasks];
+      }
+      if (!data.workLogs || !Array.isArray(data.workLogs)) {
+        data.workLogs = [...seedData.workLogs];
+      }
+      if (!data.reports || !Array.isArray(data.reports)) {
+        data.reports = [...seedData.reports];
+      }
+      if (!data.portfolioItems || !Array.isArray(data.portfolioItems)) {
+        data.portfolioItems = [...seedData.portfolioItems];
+      }
+      if (!data.files || !Array.isArray(data.files)) {
+        data.files = [...seedData.files];
+      }
+      if (!data.calendarEvents || !Array.isArray(data.calendarEvents)) {
+        data.calendarEvents = [...seedData.calendarEvents];
+      }
+      
       return data;
     } catch (e) {
       console.error("Failed to read database, resetting to seed...", e);

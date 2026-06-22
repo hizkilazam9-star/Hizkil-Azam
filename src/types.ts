@@ -5,6 +5,12 @@ export interface User {
   role: string;
   avatarUrl?: string;
   createdAt: string;
+  password?: string;
+  isEmailVerified?: boolean;
+  emailVerificationCode?: string;
+  emailVerificationExpires?: string;
+  passwordResetCode?: string;
+  passwordResetExpires?: string;
 }
 
 export interface Project {

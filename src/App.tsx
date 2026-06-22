@@ -42,6 +42,12 @@ export default function App() {
   const [role, setRole] = useState("Senior Engineering Drafter");
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
+  const [password, setPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [isForgotPasswordVerifying, setIsForgotPasswordVerifying] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [sandboxCode, setSandboxCode] = useState("");
 
   // Storage states
   const [projects, setProjects] = useState<Project[]>([]);
@@ -95,14 +101,19 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Handle Login & Auto Register Actions
+  // Handle Login & Register Actions with Email Verification
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
     setAuthSuccess("");
+    setSandboxCode("");
 
     if (!email) {
       setAuthError("Email wajib diisi.");
+      return;
+    }
+    if (!password) {
+      setAuthError("Kata sandi wajib diisi.");
       return;
     }
 
@@ -111,12 +122,20 @@ export default function App() {
         const res = await fetch("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, name, role })
+          body: JSON.stringify({ email, password, name, role })
         });
         const data = await res.json();
+        
         if (data.success) {
-          setCurrentUser(data.user);
-          setAuthSuccess("Pendaftaran berhasil!");
+          if (data.needsVerification) {
+            setNeedsVerification(true);
+            setVerificationEmail(data.email);
+            setSandboxCode(data.sandboxCode || "");
+            setAuthSuccess(data.message || "Silakan lakukan verifikasi email Anda.");
+          } else {
+            setCurrentUser(data.user);
+            setAuthSuccess("Pendaftaran berhasil!");
+          }
         } else {
           setAuthError(data.message || "Gagal melakukan register.");
         }
@@ -124,24 +143,154 @@ export default function App() {
         const res = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email })
+          body: JSON.stringify({ email, password })
         });
         const data = await res.json();
+        
         if (data.success) {
-          setCurrentUser(data.user);
+          if (data.needsVerification) {
+            setNeedsVerification(true);
+            setVerificationEmail(data.email);
+            setSandboxCode(data.sandboxCode || "");
+            setAuthSuccess(data.message || "Silakan verifikasi email Anda.");
+          } else {
+            setCurrentUser(data.user);
+            setAuthSuccess("Login berhasil!");
+            setPassword("");
+          }
         } else {
           setAuthError(data.message || "Gagal login.");
         }
       }
-    } catch (err) {
-      setAuthError("Gagal menyambung ke server database.");
+    } catch (err: any) {
+      console.error("Auth error caught:", err);
+      setAuthError("Gagal menyambung ke server database: " + (err.message || "Koneksi terputus"));
     }
   };
 
-  const handleResetPassword = (e: React.FormEvent) => {
+  const handleVerifyEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthSuccess("Tautan reset sandi berhasil dikirim ke email " + email + "!");
-    setForgotPassword(false);
+    setAuthError("");
+    setAuthSuccess("");
+
+    if (!verificationCode) {
+      setAuthError("Kode verifikasi wajib diisi.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail, code: verificationCode })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setNeedsVerification(false);
+        setVerificationCode("");
+        setSandboxCode("");
+        setCurrentUser(data.user);
+        setAuthSuccess(data.message || "Verifikasi berhasil!");
+        setPassword("");
+      } else {
+        setAuthError(data.message || "Kode verifikasi salah.");
+      }
+    } catch (err) {
+      setAuthError("Gagal memverifikasi dokumen.");
+    }
+  };
+
+  const handleResendCode = async () => {
+    setAuthError("");
+    setAuthSuccess("");
+    try {
+      const res = await fetch("/api/auth/resend-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAuthSuccess(data.message);
+        if (data.sandboxCode) {
+          setSandboxCode(data.sandboxCode);
+        }
+      } else {
+        setAuthError(data.message || "Gagal mengirim ulang kode.");
+      }
+    } catch (err) {
+      setAuthError("Kesalahan server saat mengirim ulang kode.");
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+    setSandboxCode("");
+
+    if (!email) {
+      setAuthError("Email wajib diisi.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setIsForgotPasswordVerifying(true);
+        setVerificationEmail(data.email);
+        setSandboxCode(data.sandboxCode || "");
+        setAuthSuccess(data.message || "Kode pemulihan sandi telah dikirim ke email.");
+      } else {
+        setAuthError(data.message || "Email tidak terdaftar.");
+      }
+    } catch (err) {
+      setAuthError("Gagal menghubungi server database.");
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+
+    if (!verificationCode) {
+      setAuthError("Kode pemulihan wajib diisi.");
+      return;
+    }
+    if (!password) {
+      setAuthError("Kata sandi baru wajib diisi.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail, code: verificationCode, password })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setForgotPassword(false);
+        setIsForgotPasswordVerifying(false);
+        setVerificationCode("");
+        setSandboxCode("");
+        setAuthSuccess(data.message || "Sandi berhasil diatur ulang!");
+        setPassword("");
+      } else {
+        setAuthError(data.message || "Kode pemulihan salah atau kedaluwarsa.");
+      }
+    } catch (err) {
+      setAuthError("Kesalahan server saat mereset kata sandi.");
+    }
   };
 
   const handleLogput = () => {
@@ -435,39 +584,190 @@ export default function App() {
               </div>
             )}
 
-            {/* Password Reset Modal */}
-            {forgotPassword ? (
-              <form onSubmit={handleResetPassword} className="space-y-4">
+            {/* 1. Case: Needs Email Verification */}
+            {needsVerification ? (
+              <form onSubmit={handleVerifyEmailSubmit} className="space-y-4">
+                <div className="bg-indigo-950/20 border border-indigo-900/40 p-4 rounded-xl space-y-2">
+                  <div className="font-semibold text-white tracking-tight text-xs uppercase font-sans">
+                    📧 Verifikasi Diperlukan
+                  </div>
+                  <p className="text-[10px] text-zinc-450 leading-relaxed">
+                    Kami telah mengirimkan 6 digit kode keamanan ke email: <span className="font-mono text-zinc-300 font-bold">{verificationEmail}</span>
+                  </p>
+                </div>
+
                 <div className="space-y-1.5">
-                  <label className="text-zinc-400 font-semibold block">E-mail Terdaftar</label>
+                  <label className="text-zinc-400 font-semibold block">Masukkan Kode Verifikasi</label>
                   <input 
-                    type="email"
+                    type="text"
                     required
-                    placeholder="nama@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
+                    maxLength={6}
+                    placeholder="Contoh: 123456"
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-center text-white tracking-widest text-lg font-mono focus:outline-none focus:border-blue-500"
                   />
                 </div>
-                
+
+                {sandboxCode && (
+                  <div className="bg-amber-950/20 border border-amber-900/40 p-3.5 rounded-xl text-amber-200 space-y-1.5 font-sans leading-relaxed">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-400 text-[10px] uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse"></span>
+                      Sandbox Dev Mode
+                    </div>
+                    <div className="text-[10px] text-zinc-450">SMTP belum diatur di file <code>.env</code>. Kode simulasi Anda:</div>
+                    <div className="font-mono text-center text-md font-bold bg-amber-950/40 py-1.5 px-3 rounded-lg border border-amber-800/20 tracking-widest text-amber-300 select-all">
+                      {sandboxCode}
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setVerificationCode(sandboxCode)}
+                      className="w-full text-center text-[10px] text-amber-400/90 underline hover:text-amber-300 font-medium transition cursor-pointer"
+                    >
+                      Isi kode otomatis
+                    </button>
+                  </div>
+                )}
+
                 <button 
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-2.5 rounded-lg transition"
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-2.5 rounded-lg transition py-3 cursor-pointer"
                 >
-                  Kirim Tautan Bantuan
+                  Confirm & Aktifkan Akun
                 </button>
 
-                <div className="text-center">
+                <div className="flex justify-between items-center pt-2 text-[10px] border-t border-zinc-800/60 font-medium">
                   <button 
                     type="button"
-                    onClick={() => { setForgotPassword(false); setAuthError(""); }}
-                    className="text-zinc-500 hover:text-white font-medium hover:underline"
+                    onClick={handleResendCode}
+                    className="text-zinc-400 hover:text-white transition cursor-pointer"
                   >
-                    Kembali ke halaman masuk
+                    Kirim Ulang Kode
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => { setNeedsVerification(false); setAuthError(""); setAuthSuccess(""); setSandboxCode(""); }}
+                    className="text-zinc-500 hover:text-white transition cursor-pointer"
+                  >
+                    Batal / Kembali
                   </button>
                 </div>
               </form>
+            ) : forgotPassword ? (
+              /* 2. Case: Forgot Password Form */
+              <div className="space-y-4">
+                {!isForgotPasswordVerifying ? (
+                  /* Stage A: Enter Email */
+                  <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-400 font-semibold block">E-mail Terdaftar</label>
+                      <input 
+                        type="email"
+                        required
+                        placeholder="nama@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                    
+                    <button 
+                      type="submit"
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-2.5 rounded-lg transition cursor-pointer"
+                    >
+                      Kirim Kode Pemulihan
+                    </button>
+
+                    <div className="text-center">
+                      <button 
+                        type="button"
+                        onClick={() => { setForgotPassword(false); setAuthError(""); setAuthSuccess(""); setSandboxCode(""); }}
+                        className="text-zinc-500 hover:text-white font-medium hover:underline cursor-pointer"
+                      >
+                        Kembali ke halaman masuk
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  /* Stage B: Enter Code & New Password */
+                  <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                    <div className="bg-red-950/20 border border-red-900/40 p-4 rounded-xl space-y-1 text-red-200">
+                      <div className="font-semibold text-xs uppercase font-sans">
+                        🔑 Masukkan Kode Pemulihan
+                      </div>
+                      <p className="text-[10px] text-zinc-450">
+                        Kami telah mengirim kode reset password ke email: <span className="font-mono text-zinc-300 font-bold">{verificationEmail}</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label className="text-zinc-400 font-semibold block">Kode Reset Pemulihan</label>
+                        <input 
+                          type="text"
+                          required
+                          maxLength={6}
+                          placeholder="Kode 6 digit"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-center text-white font-mono tracking-widest text-md focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/20"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-zinc-400 font-semibold block">Kata Sandi Baru</label>
+                        <input 
+                          type="password"
+                          required
+                          placeholder="Kata sandi baru Anda"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {sandboxCode && (
+                      <div className="bg-amber-950/20 border border-amber-900/40 p-3.5 rounded-xl text-amber-200 space-y-1.5 font-sans leading-relaxed">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-400 text-[10px] uppercase tracking-wider">
+                          <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse"></span>
+                          Sandbox Dev Mode
+                        </div>
+                        <div className="text-[10px] text-zinc-450">SMTP belum diatur di file <code>.env</code>. Kode reset Anda:</div>
+                        <div className="font-mono text-center text-md font-bold bg-amber-950/40 py-1.5 px-3 rounded-lg border border-amber-800/20 tracking-widest text-amber-300 select-all">
+                          {sandboxCode}
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => setVerificationCode(sandboxCode)}
+                          className="w-full text-center text-[10px] text-amber-400/90 underline hover:text-amber-300 font-medium transition cursor-pointer"
+                        >
+                          Isi kode otomatis
+                        </button>
+                      </div>
+                    )}
+
+                    <button 
+                      type="submit"
+                      className="w-full bg-red-650 hover:bg-red-600 text-white font-semibold p-2.5 rounded-lg transition cursor-pointer"
+                    >
+                      Perbarui Kata Sandi
+                    </button>
+
+                    <div className="text-center font-medium">
+                      <button 
+                        type="button"
+                        onClick={() => { setIsForgotPasswordVerifying(false); setForgotPassword(false); setAuthError(""); setAuthSuccess(""); setSandboxCode(""); }}
+                        className="text-zinc-500 hover:text-white text-[10px] transition cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             ) : (
+              /* 3. Case: Standard Login & Register Form */
               <form onSubmit={handleAuthSubmit} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-zinc-400 font-semibold block">E-mail Korporat atau Pribadi</label>
@@ -508,39 +808,41 @@ export default function App() {
                   </>
                 )}
 
-                {!isRegister && (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center text-[11px]">
-                      <label className="text-zinc-400 font-semibold block">Kata Sandi</label>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px]">
+                    <label className="text-zinc-400 font-semibold block">Kata Sandi</label>
+                    {!isRegister && (
                       <button 
                         type="button" 
-                        onClick={() => { setForgotPassword(true); setAuthError(""); }}
-                        className="text-blue-500 hover:text-blue-400 hover:underline"
+                        onClick={() => { setForgotPassword(true); setIsForgotPasswordVerifying(false); setAuthError(""); setAuthSuccess(""); }}
+                        className="text-blue-500 hover:text-blue-400 hover:underline cursor-pointer"
                       >
                         Lupa Kata Sandi?
                       </button>
-                    </div>
-                    <input 
-                      type="password"
-                      placeholder="••••••••"
-                      defaultValue="sandidownload" // safe standard mock pass
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                    )}
                   </div>
-                )}
+                  <input 
+                    type="password"
+                    required
+                    placeholder={isRegister ? "Buat kata sandi akun baru" : "Masukkan kata sandi Anda"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
 
                 <button 
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-2.5 rounded-lg transition"
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-2.5 rounded-lg transition cursor-pointer"
                 >
-                  {isRegister ? "Selesaikan Pendaftaran & Masuk" : "Masuk ke Ruang Kerja"}
+                  {isRegister ? "Daftar & Kirim Kode Verifikasi" : "Masuk ke Ruang Kerja"}
                 </button>
 
-                <div className="text-center text-zinc-500 pt-2 border-t border-zinc-800/60">
+                <div className="text-center text-zinc-500 pt-2 border-t border-zinc-800/600 select-none">
                   <button 
                     type="button"
-                    onClick={() => { setIsRegister(!isRegister); setAuthError(""); }}
-                    className="text-[11px] text-zinc-400 hover:text-white hover:underline font-medium"
+                    onClick={() => { setIsRegister(!isRegister); setAuthError(""); setAuthSuccess(""); }}
+                    className="text-[11px] text-zinc-400 hover:text-white hover:underline font-medium cursor-pointer"
                   >
                     {isRegister ? "Sudah punya akun? Masuk disini" : "Belum punya akun? Buat akun baru"}
                   </button>
@@ -550,10 +852,10 @@ export default function App() {
 
             {/* Prompt Bypass Button (Premium Feature helper for testing) */}
             <div className="pt-2 text-center">
-              <span className="text-[10px] text-zinc-650 block mb-2">Evaluator Quick Trial Bypass:</span>
+              <span className="text-[10px] text-zinc-650 block mb-2 select-none">Evaluator Quick Trial Bypass:</span>
               <button 
                 onClick={bypassAndSeedLogin}
-                className="w-full bg-zinc-950 hover:bg-zinc-850 text-zinc-350 hover:text-white border border-zinc-800 p-2 rounded-lg transition font-semibold"
+                className="w-full bg-zinc-950 hover:bg-zinc-850 text-zinc-350 hover:text-white border border-zinc-800 p-2 rounded-lg transition font-semibold cursor-pointer"
               >
                 ⚡ Akses Langsung Hizkia (Uji Coba Cepat)
               </button>
